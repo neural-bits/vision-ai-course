@@ -7,11 +7,10 @@ triton:
   plugin_path: plugins/P_NMS_PostProcessing
 
 inference:
-  triton_url: "10.10.100.114:8001"
+  triton_url: "127.0.0.1:8001"
   model_name: "yolov11-ensemble"
   model_version: "1"
   model_classes:
-    - __background__
     - person
     - bicycle
     - car

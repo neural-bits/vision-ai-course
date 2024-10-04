@@ -10,6 +10,15 @@ define PRINT_STEP
 	@echo "Step: $(1)"
 endef
 
+install_ubuntu_pkg:
+	sudo apt update
+	sudo apt install -y libgtk2.0-dev pkg-config  # For GTK+ 2.x
+	sudo apt install -y libgtk-3-dev  # For GTK+ 3.x
+	sudo apt install -y libxcb-xinerama0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-shm0 libxcb-sync1 libxcb-render-util0
+	sudo apt install xvfb
+
+
+
 install_env:
 	@echo "$(GREEN) [CONDA] Creating [$(ENV_NAME)] python env $(RESET)"
 	conda create --name $(ENV_NAME) python=3.9 -y

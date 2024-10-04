@@ -16,4 +16,4 @@ services:
               capabilities: [gpu]
     volumes:
       - ${PWD}/model_repository:/models
-    command: ["tritonserver", "--model-repository=/models"] 
+    command: ["tritonserver", "--model-repository=/models"]
