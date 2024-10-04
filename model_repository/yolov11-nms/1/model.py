@@ -1,220 +1,149 @@
 import json
 import time
-
 import numpy as np
 import triton_python_backend_utils as pb_utils
-from tools import postprocess
+from tools import xywh2xyxy, non_max_suppression, upscale_bounding_boxes
+from typing import Tuple
+from numpy.typing import NDArray
 
 
 class TritonPythonModel:
-    """Every Python model that is created must have "TritonPythonModel" as the class name"""
+    """NMS Python model for Triton"""
 
     def initialize(self, args):
-        """`initialize` is called only once when the model is being loaded.
-        Implementing `initialize` function is optional. This function allows
-        the model to intialize any state associated with this model.
-        Parameters
-        ----------
-        args : dict
-          Both keys and values are strings. The dictionary keys and values are:
-          * model_config: A JSON string containing the model configuration
-          * model_instance_kind: A string containing model instance kind
-          * model_instance_device_id: A string containing model instance device ID
-          * model_repository: Model repository path
-          * model_version: Model version
-          * model_name: Model name
-        """
+        """Called once when the model is loaded to initialize state."""
+        self.model_config = json.loads(args["model_config"])
         self.logger = pb_utils.Logger
-        self.model_config = model_config = json.loads(args["model_config"])
-        self.model_name = model_config["name"]
-        self.model_vers = model_config["version_policy"]["latest"]["num_versions"]
-        self.logger.log_info(
-            f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Model Config: {model_config}"
-        )
-        input0_config = pb_utils.get_input_config_by_name(model_config, "output0")
-        self.dimension = input0_config["dims"][0]
+        self.model_name = self.model_config["name"]
 
-        output0_config = pb_utils.get_output_config_by_name(model_config, "boxes")
-        output1_config = pb_utils.get_output_config_by_name(model_config, "classes")
-        output2_config = pb_utils.get_output_config_by_name(model_config, "scores")
-        self.out0_dtype = pb_utils.triton_string_to_numpy(output0_config["data_type"])
-        self.out1_dtype = pb_utils.triton_string_to_numpy(output1_config["data_type"])
-        self.out2_dtype = pb_utils.triton_string_to_numpy(output2_config["data_type"])
-        self.logger.log_info(
-            f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Output Config: {output0_config}, {output1_config}, {output2_config}"
-        )
-        self.inp0_dtype = pb_utils.triton_string_to_numpy(input0_config["data_type"])
+        # Get the dimensions and data types of input and output
+        input_config = pb_utils.get_input_config_by_name(self.model_config, "output0")
+        self.dimension = input_config["dims"][0]
 
+        output_config_0 = pb_utils.get_output_config_by_name(self.model_config, "boxes")
+        output_config_1 = pb_utils.get_output_config_by_name(self.model_config, "classes")
+        output_config_2 = pb_utils.get_output_config_by_name(self.model_config, "scores")
+
+        self.out0_dtype = pb_utils.triton_string_to_numpy(output_config_0["data_type"])
+        self.out1_dtype = pb_utils.triton_string_to_numpy(output_config_1["data_type"])
+        self.out2_dtype = pb_utils.triton_string_to_numpy(output_config_2["data_type"])
+
+        # Parameters from model configuration
         self.max_dets = int(self.model_config["parameters"]["max_det"]["string_value"])
-        self.nms_threshold = float(
-            self.model_config["parameters"]["nms_th"]["string_value"]
-        )
-        self.nms_iou_th = float(
-            self.model_config["parameters"]["nms_iou_th"]["string_value"]
-        )
-        self.logger.log_info(
-            f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Unpacked Params: {self.max_dets=}, {self.nms_threshold=}, {self.nms_iou_th=}"
-        )
+        self.conf_threshold = float(self.model_config["parameters"]["conf_threshold"]["string_value"])
+        self.nms_iou_th = float(self.model_config["parameters"]["nms_iou_th"]["string_value"])
+        
+        orig_imgsz = self.model_config["parameters"]["orig_imgsz"]["string_value"].split(',')
+        tgt_imgsz = self.model_config["parameters"]["tgt_imgsz"]["string_value"].split(',')
+        self.orig_imgsz = tuple(map(int, orig_imgsz))
+        self.tgt_imgsz = tuple(map(int, tgt_imgsz))
 
-        # COMPOSE CUSTOM METRIC
-        metrics_prefix = "custom_metric"
-        custom_metric_name = f"{metrics_prefix}_{self.model_name}".replace("-", "_")
-        self.metric_family = pb_utils.MetricFamily(
-            name=custom_metric_name,
-            description="Cumulative time spent processing NMS requests",
-            kind=pb_utils.MetricFamily.COUNTER,
-        )
-        self.metric = self.metric_family.Metric(
-            labels={"model": self.model_name, "version": str(self.model_vers)}
-        )
+        self.logger.log_info(f"Initialized NMS Model: {self.model_name}")
 
     def execute(self, requests):
-        """`execute` MUST be implemented in every Python model. `execute`
-        function receives a list of pb_utils.InferenceRequest as the only
-        argument. This function is called when an inference request is made
-        for this model. Depending on the batching configuration (e.g. Dynamic
-        Batching) used, `requests` may contain multiple requests. Every
-        Python model, must create one pb_utils.InferenceResponse for every
-        pb_utils.InferenceRequest in `requests`. If there is an error, you can
-        set the error argument when creating a pb_utils.InferenceResponse
-        Parameters
-        ----------
-        requests : list
-          A list of pb_utils.InferenceRequest
-        Returns
-        -------
-        list
-          A list of pb_utils.InferenceResponse. The length of this list must
-          be the same as `requests`
-        """
-
+        """Performs NMS on input tensors without batching."""
         responses = []
 
-        # Every Python backend must iterate over everyone of the requests
-        # and create a pb_utils.InferenceResponse for each of them.
-        start_ns = time.time_ns()
-        try:
-            for request in requests:
-                # Get INPUTS
+        for request in requests:
+            try:
+                # Extract input tensor
                 input_tensor = pb_utils.get_input_tensor_by_name(request, "output0")
                 inputs = input_tensor.as_numpy()
-                self.logger.log_info(
-                    f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Inputs: {inputs.shape=}"
-                )
+                
+                # Perform NMS and postprocess the input tensor
+                boxes, scores, classes = self.postprocess(inputs)
 
-                batched_class_ids = []
-                batched_scores = []
-                batched_bboxes = []
+                # Log empty detection case
+                if boxes.size == 0:
+                    self.logger.log_info("No valid detections after NMS.")
+                
+                # Create output tensors and response
+                out_tensor_0 = pb_utils.Tensor("boxes", boxes.astype(self.out0_dtype))
+                out_tensor_1 = pb_utils.Tensor("classes", classes.astype(self.out1_dtype))
+                out_tensor_2 = pb_utils.Tensor("scores", scores.astype(self.out2_dtype))
 
-                for inp in inputs:
-                    boxes, scores, classes = postprocess(
-                        inp,
-                        nms_th=self.nms_threshold,
-                        nms_iou_th=self.nms_iou_th,
-                        max_det=self.max_dets,
-                    )
-                    self.logger.log_info(
-                        f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Postprocessed: {boxes}, {scores}, {classes}"
-                    )
-
-                    if boxes.size == 0 or scores.size == 0 or classes.size == 0:
-                        self.logger.log_info(
-                            f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Skipping input as postprocessed arrays are empty: {boxes.shape=}, {scores.shape=}, {classes.shape=}"
-                        )
-                        continue
-                    if np.shape(classes)[0] > self.max_dets:
-                        self.max_dets = np.shape(classes)[0]
-                    self.logger.log_info(
-                        f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Postprocessed After Unpack: {boxes.shape=}, {scores.shape=}, {classes.shape=}"
-                    )
-
-                    batched_class_ids.append(classes)
-                    batched_scores.append(scores)
-                    batched_bboxes.append(boxes)
-
-                max_detections = max(self.dimension, self.max_dets)
-
-                padded_batched_class_ids = []
-                padded_batched_scores = []
-                padded_batched_bboxes = []
-
-                for classes, scores, boxes in zip(
-                    batched_class_ids, batched_scores, batched_bboxes
-                ):
-                    padd_dim = max_detections - len(classes)
-                    if padd_dim < 0:
-                        raise ValueError(
-                            "ERROR: Dimensions of output tensors are not valid."
-                        )
-
-                    # Pad the arrays if necessary
-                    if len(classes) > 0:
-                        classes = np.concatenate(
-                            [classes, -1 * np.ones(shape=(padd_dim,))], axis=0
-                        )
-                        scores = np.concatenate(
-                            [scores, -1 * np.ones(shape=(padd_dim,))], axis=0
-                        )
-                        boxes = np.concatenate(
-                            [boxes, -1 * np.ones(shape=(padd_dim, 4))], axis=0
-                        )
-                    else:
-                        classes = -1 * np.ones(shape=(padd_dim,))
-                        scores = -1 * np.ones(shape=(padd_dim,))
-                        boxes = -1 * np.ones(shape=(padd_dim, 4))
-
-                    padded_batched_class_ids.append(classes)
-                    padded_batched_scores.append(scores)
-                    padded_batched_bboxes.append(boxes)
-
-                # Convert lists to numpy arrays
-                batched_class_ids = np.array(padded_batched_class_ids)
-                batched_scores = np.array(padded_batched_scores)
-                batched_bboxes = np.array(padded_batched_bboxes)
-
-                self.logger.log_info(
-                    f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Batched After Padding: {batched_class_ids.shape=}, {batched_scores.shape=}, {batched_bboxes.shape=}"
-                )
-
-                # Create output tensors
-                out_tensor_0 = pb_utils.Tensor(
-                    "boxes", batched_bboxes.astype(self.out0_dtype)
-                )
-                out_tensor_1 = pb_utils.Tensor(
-                    "classes", batched_class_ids.astype(self.out1_dtype)
-                )
-                out_tensor_2 = pb_utils.Tensor(
-                    "scores", batched_scores.astype(self.out2_dtype)
-                )
-
-                self.logger.log_info(
-                    f"[{self.model_name}]-[{self.model_vers}][STAGE][NMS] Batched: {batched_class_ids.shape=}, {batched_scores.shape=}, {batched_bboxes.shape=}"
-                )
-
-                # Create and append the inference response
                 inference_response = pb_utils.InferenceResponse(
                     output_tensors=[out_tensor_0, out_tensor_1, out_tensor_2]
                 )
                 responses.append(inference_response)
 
-        except IndexError as e:
-            self.logger.log_error(f"IndexError: Invalid input tensor shape {e}")
-        except Exception as e:
-            self.logger.log_error(f"Exception: {e}")
-            inference_response = pb_utils.InferenceResponse(
-                output_tensors=[], error=pb_utils.TritonError(f"An error occurred: {e}")
-            )
-            responses.append(inference_response)
-        end_ns = time.time_ns()
-        self.metric.increment(end_ns - start_ns)
+            except Exception as e:
+                self.logger.log_error(f"Error during NMS execution: {e}")
+                inference_response = pb_utils.InferenceResponse(
+                    output_tensors=[], error=pb_utils.TritonError(f"Error: {e}")
+                )
+                responses.append(inference_response)
 
         return responses
 
-    def finalize(self):
-        """`finalize` is called only once when the model is being unloaded.
-        Implementing `finalize` function is OPTIONAL. This function allows
-        the model to perform any necessary clean ups before exit.
+    def postprocess(self, raw_dets) -> Tuple[NDArray, NDArray, NDArray]:
         """
-        del self.metric
-        del self.metric_family
-        print("Finished postprocessing")
+        Transform response from Triton Inference Server to be compatible with
+        the Everdoor pipeline. If there's no detections, empty arrays for:
+        - boxes : ndarray(N, 4, dtype=float)
+        - scores: ndarray(N, 1, dtype=float)
+        - classes: ndarray(N, , dtype=float)
+
+        Parameters
+        ----------
+        results: grpcclient.InferResult
+            Response from the Triton Inference Server.
+
+        Returns
+        -------
+        Tuple[np.ndarray]
+            A tuple that containse nd.arrays for:
+            - boxes : (N, bounding box coordinates)
+            - scores: (N, confidence of each prediction)
+            - classes: (N, class label_id assigned to each prediction)
+        """
+        if len(raw_dets.shape) > 2:
+            raw_dets = raw_dets.squeeze()
+
+        # Initialize empty arrays for results
+        boxes, scores, classes = np.empty((0, 4)), np.array([]), np.array([])
+
+        try:
+            if raw_dets is not None and raw_dets.shape[0] > 0:
+                predictions = raw_dets.T
+                # self.logger.log_info(f"Predictions shape: {predictions.shape}")
+
+                # Check if there are enough columns for class scores
+                if predictions.shape[1] <= 4:
+                    raise ValueError(f"Not enough columns in predictions: {predictions.shape}")
+
+                scores = np.max(predictions[:, 4:], axis=1)
+                valid_scores_mask = scores > float(self.conf_threshold)
+                predictions = predictions[valid_scores_mask, :]
+                scores = scores[valid_scores_mask]
+
+                # Log filtered predictions and scores
+                # self.logger.log_info(f"Filtered predictions shape: {predictions.shape}")
+                # self.logger.log_info(f"Filtered scores: {scores}")
+
+                if len(scores) == 0:
+                    return boxes, scores, classes
+
+                classes = np.argmax(predictions[:, 4:], axis=1)
+                boxes = xywh2xyxy(predictions[:, :4])
+
+                # Perform NMS
+                i = non_max_suppression(boxes, scores, iou_thres=self.nms_iou_th)
+
+                if i.shape[0] > self.max_dets:
+                    i = i[:self.max_dets]
+
+                # Check if i has valid indices
+                if np.max(i) >= len(boxes):
+                    raise IndexError(f"Index {np.max(i)} is out of bounds for boxes size {len(boxes)}")
+                
+                boxes = upscale_bounding_boxes(boxes, self.orig_imgsz, self.tgt_imgsz)
+                return boxes[i], scores[i], classes[i]
+        except Exception as e:
+            self.logger.log_error(f"Error during postprocessing: {e}")
+
+        return boxes, scores, classes
+    def finalize(self):
+        """Called once when the model is unloaded (optional)."""
+        self.logger.log_info("Finalizing NMS model")
+

@@ -29,36 +29,84 @@ def postprocess(
     """
     if len(raw_dets.shape) > 2:
         raw_dets = raw_dets.squeeze()
+
+    # Initialize empty arrays for results
     boxes, scores, classes = np.empty((0, 4)), np.array([]), np.array([])
-    if raw_dets is not None:
-        # == Postprocessing NMS ==
+
+    if raw_dets is not None and raw_dets.shape[0] > 0:
         predictions = raw_dets.T
         scores = np.max(predictions[:, 4:], axis=1)
-        scores_filtered = scores > float(nms_th)
-        predictions = predictions[scores_filtered, :]
-        scores = scores[scores_filtered]
+        
+        # Log the raw predictions and scores
+        print(f"Raw predictions: {predictions}")
+        print(f"Raw scores: {scores}")
+
+        valid_scores_mask = scores > float(nms_th)
+        predictions = predictions[valid_scores_mask, :]
+        scores = scores[valid_scores_mask]
+
+        # Log filtered predictions and scores
+        print(f"Filtered predictions: {predictions}")
+        print(f"Filtered scores: {scores}")
 
         if len(scores) == 0:
             return boxes, scores, classes
 
         classes = np.argmax(predictions[:, 4:], axis=1)
-        boxes = predictions[:, :4]
-        boxes = xywh2xyxy(boxes)
+        boxes = xywh2xyxy(predictions[:, :4])
 
-        c = classes * max_det
+        # Perform NMS
         i = non_max_suppression(
-            boxes + c.reshape((c.shape[0], 1)),
-            scores,
-            iou_thres=nms_iou_th,
+            boxes, scores, iou_thres=nms_iou_th
         )
 
         if i.shape[0] > max_det:
             i = i[:max_det]
-
+        
+        #Upscale bboxes
+        orig_imgsz = kwargs.get("orig_imgsz", None)
+        tgt_imgsz = kwargs.get("tgt_imgsz", None)
+        if orig_imgsz and tgt_imgsz:
+            boxes = upscale_bounding_boxes(boxes, *orig_imgsz, *tgt_imgsz)
         return boxes[i], scores[i], classes[i]
-    else:
-        return boxes, scores, classes
+    
+    return boxes, scores, classes
 
+def upscale_bounding_boxes(
+    boxes: np.ndarray,
+    orig_wh: Tuple[int, int],
+    tgt_wh: Tuple[int, int]
+) -> np.ndarray:
+    """
+    Upscale bounding boxes from target size (tgt_w, tgt_h) to original size (orig_w, orig_h).
+    
+    Parameters
+    ----------
+    boxes : np.ndarray
+        Array of bounding boxes in [x1, y1, x2, y2] format with shape (N, 4).
+    orig_w : int
+        Original image width.
+    orig_h : int
+        Original image height.
+    tgt_w : int
+        Target image width (the size the bounding boxes were generated at).
+    tgt_h : int
+        Target image height (the size the bounding boxes were generated at).
+        
+    Returns
+    -------
+    np.ndarray
+        Array of upscaled bounding boxes with shape (N, 4).
+    """
+    # Calculate the scaling factors
+    scale_x = orig_wh[1] / tgt_wh[1]
+    scale_y = orig_wh[0] / tgt_wh[0]
+
+    # Scale the bounding boxes
+    boxes[:, [0, 2]] = boxes[:, [0, 2]] * scale_x  # Scale x1 and x2
+    boxes[:, [1, 3]] = boxes[:, [1, 3]] * scale_y  # Scale y1 and y2
+
+    return boxes
 
 def xywh2xyxy(bboxes_tensor: np.array) -> NDArray:
     """
@@ -138,4 +186,4 @@ def non_max_suppression(
         inds = np.where(ovr <= iou_thres)[0]
         order = order[inds + 1]
 
-    return np.array(keep)
+    return np.asarray(keep)
