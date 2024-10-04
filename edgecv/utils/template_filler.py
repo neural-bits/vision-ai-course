@@ -116,3 +116,26 @@ class TemplateFiller:
         text_clean = "\n".join(line for line in text_lines if line.strip())
 
         return text_clean
+
+    def fill_nms_plugin(self, fields: Dict[str, Union[str, int]]):
+        template_file = open(get_template_path(TemplateType.CUSTOM), "r").read()
+        template = jinja2.Template(template_file)
+
+        config_text = template.render(
+            model_name=fields["name"],
+            default_model_name="model.py",
+            platform="python",
+            max_batch_size=fields["max_batch_size"],
+            input_name=fields["input_name"],
+            input_data_type=fields["input_dtype"],
+            input_dims=fields["input_shape"],
+            preferred_batch_sizes=fields["preferred_batch_sizes"],
+            max_det=fields["max_det"],
+            nms_th=fields["nms_th"],
+            nms_iou_th=fields["nms_iou_th"],
+        )
+
+        text_lines = config_text.strip().splitlines()
+        text_clean = "\n".join(line for line in text_lines if line.strip())
+
+        return text_clean

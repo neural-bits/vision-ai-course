@@ -30,10 +30,16 @@ def pt2onnx() -> None:
         dynamic=onnx_cfg["is_dynamic"],
     )
     logger.info(f"Exported {conf['onnx']['weights_path']} to ONNX format")
-    merged = OmegaConf.merge(
-        conf,
+    onnx_updated = OmegaConf.merge(
+        onnx_cfg,
         DictConfig({"onnx_path": m_path}),
     )
+    merged = OmegaConf.merge(
+        conf,
+        DictConfig({"onnx": onnx_updated}),
+    )
+    
+    
     OmegaConf.save(merged, export_config_path)
 
     logger.info("Added ONNX export outputs details to conf")
@@ -122,7 +128,7 @@ def onnx2trt() -> None:
 
 
 def pipeline():
-    pt2onnx()
+    # pt2onnx()
     onnx2trt()
 
 
