@@ -5,7 +5,7 @@ max_batch_size: 4
 input [
   {
     name: "INPUT_IMAGES"
-    data_type: TYPE_FP16
+    data_type: TYPE_FP32
     format: FORMAT_NCHW
     dims: [3, 640, 640]
   }

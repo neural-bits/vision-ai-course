@@ -6,7 +6,7 @@ max_batch_size: 4
 input [
     {
         name: "output0"
-        data_type: TYPE_FP32
+        data_type: TYPE_FP16
         dims: [84, 8400]
     }
 ]
@@ -36,15 +36,25 @@ dynamic_batching {
 
 parameters {
     key: "max_det",
-    value: {string_value: "100"}
+    value: {string_value: "300"}
 }
 
 parameters {
-    key: "nms_th",
+    key: "orig_imgsz",
+    value: {string_value: "720,1280"}
+}
+
+parameters {
+    key: "tgt_imgsz",
+    value: {string_value: "640,640"}
+}
+
+parameters {
+    key: "conf_threshold",
     value: {string_value: "0.5"}
 }
 
 parameters {
     key: "nms_iou_th",
-    value: {string_value: "0.75"}
+    value: {string_value: "0.65"}
 }

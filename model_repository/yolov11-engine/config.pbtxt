@@ -1,12 +1,12 @@
 name: "yolov11-engine"
 platform: "tensorrt_plan"
 max_batch_size: 4
-default_model_filename: "model.plan"
+default_model_filename: "v11_model_fp16_cc86.plan"
 
 input [
     {
         name: "images"
-        data_type: TYPE_FP32
+        data_type: TYPE_FP16
         format: FORMAT_NCHW
         dims: [3, 640, 640]
     }
@@ -15,7 +15,7 @@ input [
 output [
     {
         name: "output0"
-        data_type: TYPE_FP32
+        data_type: TYPE_FP16
         dims: [84, 8400]
     }
 ]
@@ -27,7 +27,7 @@ dynamic_batching {
 
 instance_group [
     {
-        count: 1
+        count: 2
         kind: KIND_GPU
     }
 ]
