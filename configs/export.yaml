@@ -1,0 +1,16 @@
+onnx:
+  weights_path: pretrained/yolov11m.pt
+  is_half: false
+  is_dynamic: true
+  is_simplified: true
+  with_nms: true
+  image_size: 640
+  device: cuda:0
+  onnx_path: pretrained/yolov11m.onnx
+tensorrt:
+  device: 0
+  minShapes: images:1x3x640x640
+  optShapes: images:4x3x640x640
+  maxShapes: images:8x3x640x640
+  dtype: fp16
+  image: nvcr.io/nvidia/tensorrt:23.10-py3

@@ -1,0 +1,43 @@
+name: "yolov11-engine"
+platform: "tensorrt_plan"
+max_batch_size: 4
+default_model_filename: "model.plan"
+
+input [
+    {
+        name: "images"
+        data_type: TYPE_FP32
+        format: FORMAT_NCHW
+        dims: [3, 640, 640]
+    }
+]
+
+output [
+    {
+        name: "output0"
+        data_type: TYPE_FP32
+        dims: [84, 8400]
+    }
+]
+
+dynamic_batching {
+  preferred_batch_size: [2, 4]
+  max_queue_delay_microseconds: 1000
+}
+
+instance_group [
+    {
+        count: 1
+        kind: KIND_GPU
+    }
+]
+
+optimization {
+  execution_accelerators {
+    gpu_execution_accelerator : [
+      {
+        name : "tensorrt"
+      }
+    ]
+  }
+}
