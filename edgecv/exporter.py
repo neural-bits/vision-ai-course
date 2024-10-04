@@ -97,7 +97,8 @@ def onnx2trt() -> None:
             _onnx_path = Path(onnx_cfg["onnx_path"]).stem
             _o2t = f" --onnx=/workspace/{_onnx_path}.onnx --saveEngine=/workspace/model.plan --{trt_cfg['dtype'].lower()}"
             _shapes = f" --minShapes={trt_cfg['minShapes']} --optShapes={trt_cfg['optShapes']} --maxShapes={trt_cfg['maxShapes']}"
-            command = _exec + _o2t + _shapes
+            _force_fp16 = f" --fp16 --inputIOFormats=fp16:chw --outputIOFormats=fp16:chw"
+            command = _exec + _o2t + _shapes + _force_fp16
 
             logger.info(f"Running TensorRT conversion command: {command}")
 
@@ -128,7 +129,7 @@ def onnx2trt() -> None:
 
 
 def pipeline():
-    # pt2onnx()
+    pt2onnx()
     onnx2trt()
 
 

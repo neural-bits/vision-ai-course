@@ -10,7 +10,7 @@ from video import FrameAcquisition
 shared_buffer = None
 acquisition_process = None
 
-cv2.setNumThreads(1)
+# cv2.setNumThreads(1)
 
 
 def main():
@@ -18,14 +18,14 @@ def main():
     mp.set_start_method("fork")
 
     # Define shared buffer
-    frame_shape = (1080, 1920, 3)
-    buffer_size = 3
+    frame_shape = (720, 1280, 3)
+    buffer_size = 5
     shared_buffer = SharedBuffer(frame_shape, buffer_size)
 
     # Start acquisition and inference processes
     acquisition = FrameAcquisition(
         shared_buffer,
-        "humans.mp4",
+        "output_video_hd.mp4",
     )
     infer = InferenceHandler(shared_buffer)
 
