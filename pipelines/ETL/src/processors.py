@@ -32,7 +32,6 @@ class Config(BaseSettings):
 
 config = Config()
 
-# Database and Blob Client
 mongo_client = AsyncIOMotorClient(config.mongo_uri)
 db = mongo_client["media_pipeline"]
 collection = db["media_metadata"]
@@ -68,7 +67,6 @@ class UnsplashProcessor(BaseProcessor):
                 return (await response.json()).get("results", [])
 
 
-# Pexels Processor
 class PexelsProcessor(BaseProcessor):
     async def fetch_data(self) -> List[Dict[str, Any]]:
         async with ClientSession() as session:
@@ -79,7 +77,6 @@ class PexelsProcessor(BaseProcessor):
                 return (await response.json()).get("photos", [])
 
 
-# Consumer Worker
 class ConsumerWorker:
     def __init__(self, queue: asyncio.Queue):
         self.queue = queue
@@ -90,6 +87,7 @@ class ConsumerWorker:
         before=before_log(logger, logging.INFO),
     )
     async def upload_to_blob_storage(self, url: str, file_name: str) -> str:
+        # TODO: this should stay in another module, blob layer
         async with ClientSession() as session:
             async with session.get(url) as response:
                 response.raise_for_status()
@@ -100,13 +98,12 @@ class ConsumerWorker:
 
     async def process_item(self, item: Dict[str, Any]) -> None:
         try:
-            # Validate metadata
+            # FIXME: add valid errors, remove nulls
             metadata = MediaMetadata.from_dict(item)
         except ValidationError as e:
             logger.error(f"Validation error: {e}")
             return
 
-        # Save metadata to MongoDB
         await collection.insert_one(metadata.as_dict())
         logger.info(f"Saved metadata for {metadata.id}")
 
@@ -121,16 +118,11 @@ class ConsumerWorker:
                 self.queue.task_done()
 
 
-# Main Entry Point
 async def main():
     queue = asyncio.Queue()
-    topics = ["bear"]
 
-    # Create processors
     processors = [PexelsProcessor(topic, queue) for topic in topics]
-
-    # Run processors and consumers
-    consumers = [ConsumerWorker(queue) for _ in range(1)]  # Number of consumers
+    consumers = [ConsumerWorker(queue) for _ in range(1)]
 
     tasks = [asyncio.create_task(processor.run()) for processor in processors] + [
         asyncio.create_task(consumer.run()) for consumer in consumers
@@ -139,12 +131,13 @@ async def main():
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
-        logger.info("Shutting down gracefully...")
+        logger.info("Shutting down...")
     finally:
         await queue.join()
 
 
 if __name__ == "__main__":
+    # FIXME: i don't like this, adapt to fire in the future
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
