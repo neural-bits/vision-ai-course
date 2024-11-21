@@ -1,0 +1,50 @@
+name: "{{ model_name }}"
+default_model_filename: "{{ default_model_filename }}"
+platform: "{{ platform }}"
+max_batch_size: {{ max_batch_size }}
+
+input [
+    {
+        name: "{{ input_name }}"
+        data_type: {{ input_data_type }}
+        dims: [{{ input_dims }}]
+    }
+]
+
+output [
+    {
+        name: "boxes"
+        data_type: TYPE_FP32
+        dims: [-1, 4]
+    },
+    {
+        name: "classes"
+        data_type: TYPE_INT32
+        dims: [-1]
+    },
+    {
+        name: "scores"
+        data_type: TYPE_FP32
+        dims: [-1]
+    }
+]
+
+dynamic_batching {
+    preferred_batch_size: [{{ preferred_batch_sizes }}]
+    max_queue_delay_microseconds: 10000
+}
+
+parameters {
+    key: "max_det",
+    value: {string_value: "{{ max_det }}"}
+}
+
+parameters {
+    key: "nms_th",
+    value: {string_value: "{{ nms_th }}"}
+}
+
+parameters {
+    key: "nms_iou_th",
+    value: {string_value: "{{ nms_iou_th }}"}
+}
