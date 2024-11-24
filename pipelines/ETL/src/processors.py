@@ -57,6 +57,26 @@ class BaseProcessor(ABC):
                 await asyncio.sleep(5)
 
 
+class FreepikProcessor(BaseProcessor):
+    async def fetch_data(self) -> List[Dict[str, Any]]:
+        async with ClientSession() as session:
+            url = PEXELS_API_URL.format(topic=self.topic)
+            headers = {"Authorization": config.freepik_api_key}
+            async with session.get(url, headers=headers) as response:
+                response.raise_for_status()
+                return (await response.json()).get("photos", [])
+
+
+class PixaBayProcessor(BaseProcessor):
+    async def fetch_data(self) -> List[Dict[str, Any]]:
+        async with ClientSession() as session:
+            url = PEXELS_API_URL.format(topic=self.topic)
+            headers = {"Authorization": config.pixabay_api_key}
+            async with session.get(url, headers=headers) as response:
+                response.raise_for_status()
+                return (await response.json()).get("photos", [])
+
+
 class UnsplashProcessor(BaseProcessor):
     async def fetch_data(self) -> List[Dict[str, Any]]:
         async with ClientSession() as session:
