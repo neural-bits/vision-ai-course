@@ -1,0 +1,5 @@
+default:
+  data: apis.yaml
+  export: default.yaml
+  deploy: triton.yaml
+  trainer: centralized.yaml
