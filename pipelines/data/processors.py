@@ -1,45 +1,30 @@
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, List
 
+import dotenv
 import structlog
 from aiohttp import ClientSession
-from constants import PEXELS_API_URL, UNSPLASH_API_URL
-from dotenv import load_dotenv
 from models import MediaMetadata
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import ValidationError
-from pydantic_settings import BaseSettings
 from tenacity import before_log, retry, stop_after_attempt, wait_exponential
 
-load_dotenv("./pipelines/ETL/.env")
+ROOT = Path(__file__).parent.parent
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = structlog.get_logger()
 
-
-# Configuration
-class Config(BaseSettings):
-    unsplash_api_key: str
-    pexels_api_key: str
-    mongo_uri: str
-
-    class Config:
-        env_file = ".env"
-
-
-config = Config()
-
-mongo_client = AsyncIOMotorClient(config.mongo_uri)
-db = mongo_client["media_pipeline"]
-collection = db["media_metadata"]
+# Environment variables
+dotenv.load_dotenv(str(ROOT / "data" / ".env"))
 
 
 class BaseProcessor(ABC):
-    def __init__(self, topic: str, queue: asyncio.Queue):
-        self.topic = topic
+    def __init__(self, subject: str, queue: asyncio.Queue):
+        self.subject = subject
         self.queue = queue
 
     @abstractmethod
@@ -58,40 +43,48 @@ class BaseProcessor(ABC):
 
 
 class FreepikProcessor(BaseProcessor):
+    FREEPIK_API_URL = "https://api.freepik.com/v1/search?query={subject}"
+
     async def fetch_data(self) -> List[Dict[str, Any]]:
         async with ClientSession() as session:
-            url = PEXELS_API_URL.format(topic=self.topic)
-            headers = {"Authorization": config.freepik_api_key}
+            url = self.FREEPIK_API_URL.format(subject=self.subject)
+            headers = {"Authorization": os.getenv("FREEPIK_API_KEY")}
             async with session.get(url, headers=headers) as response:
                 response.raise_for_status()
                 return (await response.json()).get("photos", [])
 
 
 class PixaBayProcessor(BaseProcessor):
+    PIXABAY_API_URL = "https://pixabay.com/api/?key={key}&q={subject}"
+
     async def fetch_data(self) -> List[Dict[str, Any]]:
         async with ClientSession() as session:
-            url = PEXELS_API_URL.format(topic=self.topic)
-            headers = {"Authorization": config.pixabay_api_key}
+            url = self.PIXABAY_API_URL.format(subject=self.subject)
+            headers = {"Authorization": os.getenv("PIXABAY_API_KEY")}
             async with session.get(url, headers=headers) as response:
                 response.raise_for_status()
                 return (await response.json()).get("photos", [])
 
 
 class UnsplashProcessor(BaseProcessor):
+    UNSPLASH_API_URL = "https://api.unsplash.com/search/photos?query={subject}"
+
     async def fetch_data(self) -> List[Dict[str, Any]]:
         async with ClientSession() as session:
-            url = PEXELS_API_URL.format(topic=self.topic)
-            headers = {"Authorization": f"Client-ID {config.unsplash_api_key}"}
+            url = self.UNSPLASH_API_URL.format(subject=self.subject)
+            headers = {"Authorization": f"Client-ID {os.getenv('UNSPLASH_API_KEY')}"}
             async with session.get(url, headers=headers) as response:
                 response.raise_for_status()
                 return (await response.json()).get("results", [])
 
 
 class PexelsProcessor(BaseProcessor):
+    PEXELS_API_URL = "https://api.pexels.com/v1/search?query={subject}"
+
     async def fetch_data(self) -> List[Dict[str, Any]]:
         async with ClientSession() as session:
-            url = PEXELS_API_URL.format(topic=self.topic)
-            headers = {"Authorization": config.pexels_api_key}
+            url = self.PEXELS_API_URL.format(subject=self.subject)
+            headers = {"Authorization": os.getenv("PEXELS_API_KEY")}
             async with session.get(url, headers=headers) as response:
                 response.raise_for_status()
                 return (await response.json()).get("photos", [])
@@ -118,14 +111,13 @@ class ConsumerWorker:
 
     async def process_item(self, item: Dict[str, Any]) -> None:
         try:
-            # FIXME: add valid errors, remove nulls
             metadata = MediaMetadata.from_dict(item)
-        except ValidationError as e:
+        except Exception as e:
             logger.error(f"Validation error: {e}")
             return
 
-        await collection.insert_one(metadata.as_dict())
-        logger.info(f"Saved metadata for {metadata.id}")
+        # await collection.insert_one(metadata.as_dict())
+        # logger.info(f"Saved metadata for {metadata.id}")
 
     async def run(self) -> None:
         while True:
@@ -139,9 +131,15 @@ class ConsumerWorker:
 
 
 async def main():
+    subject = "animals"
     queue = asyncio.Queue()
+    processors = [
+        # FreepikProcessor(subject, queue),
+        # PixaBayProcessor(subject, queue),
+        # UnsplashProcessor(subject, queue),
+        PexelsProcessor(subject, queue),
+    ]
 
-    processors = [PexelsProcessor(topic, queue) for topic in topics]
     consumers = [ConsumerWorker(queue) for _ in range(1)]
 
     tasks = [asyncio.create_task(processor.run()) for processor in processors] + [

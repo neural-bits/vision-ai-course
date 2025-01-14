@@ -1,6 +1,17 @@
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel
+from pydantic_settings import BaseSettings
+
+
+# Configuration
+class Config(BaseSettings):
+    unsplash_api_key: str
+    pexels_api_key: str
+    mongo_uri: str
+
+    class Config:
+        env_file = ".env"
 
 
 class Author(BaseModel):
