@@ -1,0 +1,20 @@
+[project]
+name = "edgecv"
+version = "0.1.0"
+description = "Edge Computer Vision project package"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "av>=14.0.1",
+    "docker>=7.1.0",
+    "fire>=0.6.0",
+    "hydra-core>=1.3.2",
+    "loguru>=0.7.3",
+    "omegaconf>=2.3.0",
+    "onnx>=1.17.0",
+    "onnxslim>=0.1.47",
+    "pixabay>=0.0.5",
+    "supervision>=0.25.1",
+    "tritonclient>=2.53.0",
+    "ultralytics>=8.3.1",
+]
