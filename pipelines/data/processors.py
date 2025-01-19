@@ -1,162 +1,149 @@
 import asyncio
-import logging
 import os
+import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, AsyncGenerator, Dict, List
 
 import dotenv
-import structlog
 from aiohttp import ClientSession
-from models import MediaMetadata
-from motor.motor_asyncio import AsyncIOMotorClient
-from tenacity import before_log, retry, stop_after_attempt, wait_exponential
+from loguru import logger
+from models import CommonMediaDocument, PexelsItem, UnsplashItem
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 ROOT = Path(__file__).parent.parent
 
-# Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = structlog.get_logger()
-
 # Environment variables
-dotenv.load_dotenv(str(ROOT / "data" / ".env"))
+dotenv.load_dotenv(str(ROOT / ".env"))
 
 
 class BaseProcessor(ABC):
-    def __init__(self, subject: str, queue: asyncio.Queue):
-        self.subject = subject
+    def __init__(
+        self,
+        subject: str,
+        num_pages: int,
+        num_items_per_page: int,
+        queue: asyncio.Queue,
+        kwargs: Dict[str, Any] = {},
+    ):
         self.queue = queue
+        self.subject = subject
+        self.num_pages = num_pages
+        self.num_items_per_page = num_items_per_page
+        self.image_params = {
+            "width": kwargs.get("width", 1920),
+            "height": kwargs.get("height", 1080),
+        }
+        self.sleep_window = 5
 
     @abstractmethod
-    async def fetch_data(self) -> List[Dict[str, Any]]:
+    async def fetch_data(self) -> List[CommonMediaDocument]:
         pass
 
     async def run(self) -> None:
         while True:
             try:
-                data = await self.fetch_data()
+                data: List[CommonMediaDocument] = await self.fetch_data()
                 for item in data:
                     await self.queue.put(item)
+                await asyncio.sleep(self.sleep_window)
             except Exception as e:
                 logger.error(f"Error in {self.__class__.__name__}: {e}")
-                await asyncio.sleep(5)
-
-
-class FreepikProcessor(BaseProcessor):
-    FREEPIK_API_URL = "https://api.freepik.com/v1/search?query={subject}"
-
-    async def fetch_data(self) -> List[Dict[str, Any]]:
-        async with ClientSession() as session:
-            url = self.FREEPIK_API_URL.format(subject=self.subject)
-            headers = {"Authorization": os.getenv("FREEPIK_API_KEY")}
-            async with session.get(url, headers=headers) as response:
-                response.raise_for_status()
-                return (await response.json()).get("photos", [])
-
-
-class PixaBayProcessor(BaseProcessor):
-    PIXABAY_API_URL = "https://pixabay.com/api/?key={key}&q={subject}"
-
-    async def fetch_data(self) -> List[Dict[str, Any]]:
-        async with ClientSession() as session:
-            url = self.PIXABAY_API_URL.format(subject=self.subject)
-            headers = {"Authorization": os.getenv("PIXABAY_API_KEY")}
-            async with session.get(url, headers=headers) as response:
-                response.raise_for_status()
-                return (await response.json()).get("photos", [])
 
 
 class UnsplashProcessor(BaseProcessor):
-    UNSPLASH_API_URL = "https://api.unsplash.com/search/photos?query={subject}"
+    PROCESSOR_NAME = "Unsplash"
+    UNSPLASH_API_URL = "https://api.unsplash.com/search/photos?query={subject}&width={im_width}&height={im_height}&page={num_pages}&per_page={num_items_per_page}"
 
-    async def fetch_data(self) -> List[Dict[str, Any]]:
+    async def fetch_data(self) -> List[CommonMediaDocument]:
         async with ClientSession() as session:
-            url = self.UNSPLASH_API_URL.format(subject=self.subject)
+            url = self.UNSPLASH_API_URL.format(
+                subject=self.subject,
+                im_width=self.image_params["width"],
+                im_height=self.image_params["height"],
+                num_pages=self.num_pages,
+                num_items_per_page=self.num_items_per_page,
+            )
             headers = {"Authorization": f"Client-ID {os.getenv('UNSPLASH_API_KEY')}"}
             async with session.get(url, headers=headers) as response:
                 response.raise_for_status()
-                return (await response.json()).get("results", [])
+                result = (await response.json()).get("results", [])
+
+                documents = []
+                if result:
+                    logger.info(
+                        f"Received {len(result)} items from {self.PROCESSOR_NAME}"
+                    )
+                    for res in result:
+                        new_item = UnsplashItem.from_json(res)
+                        common_item = CommonMediaDocument.from_unsplash(new_item)
+                        documents.append(common_item)
+                logger.info(f"Processed into {len(documents)}")
+                return documents
 
 
 class PexelsProcessor(BaseProcessor):
-    PEXELS_API_URL = "https://api.pexels.com/v1/search?query={subject}"
+    PROCESSOR_NAME = "Pexels"
+    PEXELS_API_URL = "https://api.pexels.com/v1/search?query={subject}&width={im_width}&height={im_height}&page={num_pages}&per_page={num_items_per_page}"
 
-    async def fetch_data(self) -> List[Dict[str, Any]]:
+    async def fetch_data(self) -> CommonMediaDocument:
         async with ClientSession() as session:
-            url = self.PEXELS_API_URL.format(subject=self.subject)
+            url = self.PEXELS_API_URL.format(
+                subject=self.subject,
+                num_pages=self.num_pages,
+                num_items_per_page=self.num_items_per_page,
+                im_width=self.image_params["width"],
+                im_height=self.image_params["height"],
+            )
             headers = {"Authorization": os.getenv("PEXELS_API_KEY")}
-            async with session.get(url, headers=headers) as response:
+            async with session.get(
+                url,
+                headers=headers,
+            ) as response:
                 response.raise_for_status()
-                return (await response.json()).get("photos", [])
+                result = await response.json()
+                # TODO: implement error handling + group images by page in pydantic model
+
+                documents = []
+                if result:
+                    logger.info(
+                        f"Received {len(result)} items from {self.PROCESSOR_NAME}"
+                    )
+
+                    for res in result:
+                        new_item = PexelsItem.from_json(res)
+                        common_item = CommonMediaDocument.from_pexels(new_item)
+                        documents.append(common_item)
+                logger.info(f"Processed into {len(documents)}")
+                return documents
 
 
 class ConsumerWorker:
     def __init__(self, queue: asyncio.Queue):
+        self.consumer_id = uuid.uuid4()
         self.queue = queue
+        logger.info(f"Consumer [{self.consumer_id}] created")
 
     @retry(
         wait=wait_exponential(min=1, max=10),
-        stop=stop_after_attempt(5),
-        before=before_log(logger, logging.INFO),
+        stop=stop_after_attempt(2),
     )
-    async def upload_to_blob_storage(self, url: str, file_name: str) -> str:
-        # TODO: this should stay in another module, blob layer
-        async with ClientSession() as session:
-            async with session.get(url) as response:
-                response.raise_for_status()
-                blob_client = container_client.get_blob_client(file_name)
-                await blob_client.upload_blob(await response.read(), overwrite=True)
-                logger.info(f"Uploaded {file_name} to blob storage")
-                return f"{config.azure_container_name}/{file_name}"
-
-    async def process_item(self, item: Dict[str, Any]) -> None:
+    async def process_item(self, item: CommonMediaDocument) -> None:
         try:
-            metadata = MediaMetadata.from_dict(item)
+            CommonMediaDocument.model_validate(item)
         except Exception as e:
             logger.error(f"Validation error: {e}")
             return
 
-        # await collection.insert_one(metadata.as_dict())
-        # logger.info(f"Saved metadata for {metadata.id}")
-
     async def run(self) -> None:
         while True:
             item = await self.queue.get()
+            logger.info(
+                f"Consumer [{self.consumer_id}] received item - {item.image_url}"
+            )
             try:
                 await self.process_item(item)
+                self.queue.task_done()
+                await asyncio.sleep(0.1)
             except Exception as e:
                 logger.error(f"Error processing item: {e}")
-            finally:
-                self.queue.task_done()
-
-
-async def main():
-    subject = "animals"
-    queue = asyncio.Queue()
-    processors = [
-        # FreepikProcessor(subject, queue),
-        # PixaBayProcessor(subject, queue),
-        # UnsplashProcessor(subject, queue),
-        PexelsProcessor(subject, queue),
-    ]
-
-    consumers = [ConsumerWorker(queue) for _ in range(1)]
-
-    tasks = [asyncio.create_task(processor.run()) for processor in processors] + [
-        asyncio.create_task(consumer.run()) for consumer in consumers
-    ]
-
-    try:
-        await asyncio.gather(*tasks)
-    except asyncio.CancelledError:
-        logger.info("Shutting down...")
-    finally:
-        await queue.join()
-
-
-if __name__ == "__main__":
-    # FIXME: i don't like this, adapt to fire in the future
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Pipeline interrupted. Exiting...")
