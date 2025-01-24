@@ -133,12 +133,12 @@ class CommonMediaDocument(BaseModel):
 # This is a `str` that will be converted to a `bson.ObjectId` when sent to MongoDB.
 PyObjectId = Annotated[str, BeforeValidator(str)]
 
-class MongoMediaDocument(BaseModel):
+class RawMediaMongoDocument(BaseModel):
     """
     Container for a MediaDocument in MongoDB collection.
     """
 
-    # The primary key for the MongoMediaDocument, stored as a `str` on the instance.
+    # The primary key for the RawMediaMongoDocument, stored as a `str` on the instance.
     # This will be aliased to `_id` when sent to MongoDB,
     # but provided as `id` in the previous Pydantic models we have ID as string
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
@@ -172,7 +172,7 @@ class MongoMediaDocument(BaseModel):
     )
     
     @classmethod
-    def from_commondoc(cls, doc: CommonMediaDocument) -> "MongoMediaDocument":
+    def from_commondoc(cls, doc: CommonMediaDocument) -> "RawMediaMongoDocument":
         return cls(
             weburl=doc.weburl,
             imgsize=doc.imgsize,

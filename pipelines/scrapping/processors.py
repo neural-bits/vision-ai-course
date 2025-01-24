@@ -18,7 +18,6 @@ class BaseProcessor(ABC):
         num_items_per_page: int,
         queue: asyncio.Queue,
     ):
-        
         assert os.getenv("API_IMAGE_SUBJECT"), "API_IMAGE_SUBJECT is not set"
         self.queue = queue
         self._subject = subject
@@ -26,7 +25,7 @@ class BaseProcessor(ABC):
         self._num_pages = num_pages
         self._num_items_per_page = num_items_per_page
         self._curr_page = start_page
-    
+
     @abstractmethod
     async def fetch_data(self, page_num: int) -> List[CommonMediaDocument]:
         pass
@@ -46,7 +45,9 @@ class BaseProcessor(ABC):
 
 class UnsplashProcessor(BaseProcessor):
     PROCESSOR_NAME = "Unsplash"
-    UNSPLASH_API_URL = "https://api.unsplash.com/search/photos?query={subject}&page={page}&per_page={num_items_per_page}"
+    UNSPLASH_API_URL = (
+        "https://api.unsplash.com/search/photos?query={subject}&page={page}&per_page={num_items_per_page}"
+    )
 
     async def fetch_data(self, page_num: int) -> List[CommonMediaDocument]:
         async with ClientSession() as session:
@@ -63,12 +64,12 @@ class UnsplashProcessor(BaseProcessor):
                 documents = []
                 if result:
                     items = result.get("results", [])
-                    logger.info(
-                        f"Received {len(items)} items from page={self._curr_page} from {self.PROCESSOR_NAME}"
-                    )
+                    logger.info(f"Received {len(items)} items from page={self._curr_page} from {self.PROCESSOR_NAME}")
                     for item in items:
                         new_item = UnsplashItem.from_json(item)
-                        common_item = CommonMediaDocument.from_unsplash(item=new_item, subject=self._subject, page_number=self._curr_page)
+                        common_item = CommonMediaDocument.from_unsplash(
+                            item=new_item, subject=self._subject, page_number=self._curr_page
+                        )
                         documents.append(common_item)
                 logger.info(f"Processed into {len(documents)}")
                 return documents
@@ -96,11 +97,11 @@ class PexelsProcessor(BaseProcessor):
                 documents = []
                 if result:
                     items = result.get("photos", [])
-                    logger.info(
-                        f"Received {len(items)} items from page={self._curr_page} from {self.PROCESSOR_NAME}"
-                    )
+                    logger.info(f"Received {len(items)} items from page={self._curr_page} from {self.PROCESSOR_NAME}")
                     for item in items:
                         new_item = PexelsItem.from_json(item)
-                        common_item = CommonMediaDocument.from_pexels(item=new_item, subject=self._subject, page_number=self._curr_page)
+                        common_item = CommonMediaDocument.from_pexels(
+                            item=new_item, subject=self._subject, page_number=self._curr_page
+                        )
                         documents.append(common_item)
                 return documents
