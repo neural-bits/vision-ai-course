@@ -2,8 +2,8 @@ version: "3.9"
 services:
   mongo:
     image: mongo
-    restart: always
-    container_name: mongo
+    restart: no
+    container_name: edgecv_data_mongo
     ports:
       - 27017:27017
     environment:
