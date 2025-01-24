@@ -10,17 +10,18 @@ ROOT_PATH = Path(__file__).parent.parent
 dotenv.load_dotenv(str(ROOT_PATH / ".env"))
 
 if TYPE_CHECKING:
-    from scrapping.models import MongoMediaDocument
-    
+    from scrapping.models import RawMediaMongoDocument
+
+# MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("MONGO_DB_NAME")
-
-# Collections
 RAW_DATA_COLLECTION = os.getenv("RAW_DATA_COLLECTION")
 CLEAN_DATA_COLLECTION = os.getenv("CLEAN_DATA_COLLECTION")
 DATASET_COLLECTION = os.getenv("DATASET_COLLECTION")
 
+
 logger = logger.bind(name="MongoConnector")
+
 
 class MongoConnector:
     def __init__(self):
@@ -32,7 +33,7 @@ class MongoConnector:
         if DB_NAME not in self._client.list_database_names():
             self._db = self._client[DB_NAME]
             logger.info(f"Created MongoDB database: {DB_NAME}")
-        
+
         # Check for collections or create them
         # TODO: move this to call only once
         self._db = self._client[DB_NAME]
@@ -47,10 +48,16 @@ class MongoConnector:
             self._db.create_collection(DATASET_COLLECTION)
             logger.info(f"Created MongoDB collection: {DATASET_COLLECTION}")
 
-    def insert_raw_metadata(self, mongo_media_item: "MongoMediaDocument") -> None:
+    def insert_raw_metadata(self, mongo_media_item: "RawMediaMongoDocument") -> None:
         collection = self._db[RAW_DATA_COLLECTION]
+        collection.insert_one(mongo_media_item.model_dump(by_alias=True, exclude=["id"]))
+        logger.info(f"Inserted data: {mongo_media_item}")
+
+    def insert_clean_metadata(self, mongo_media_item: "RawMediaMongoDocument") -> None:
+        collection = self._db[CLEAN_DATA_COLLECTION]
         collection.insert_one(mongo_media_item.model_dump(by_alias=True, exclude=["id"]))
         logger.info(f"Inserted data: {mongo_media_item}")
 
     def close(self):
         self.client.close()
+        logger.info("Closed MongoDB connection")
