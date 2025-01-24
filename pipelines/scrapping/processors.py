@@ -2,72 +2,73 @@ import asyncio
 import os
 import uuid
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import List
 
-import dotenv
 from aiohttp import ClientSession
 from loguru import logger
 from models import CommonMediaDocument, PexelsItem, UnsplashItem
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 
 class BaseProcessor(ABC):
     def __init__(
         self,
         subject: str,
+        start_page: int,
         num_pages: int,
         num_items_per_page: int,
         queue: asyncio.Queue,
-        kwargs: Dict[str, Any] = {},
     ):
+        
+        assert os.getenv("API_IMAGE_SUBJECT"), "API_IMAGE_SUBJECT is not set"
         self.queue = queue
-        self.subject = subject
-        self.num_pages = num_pages
-        self.num_items_per_page = num_items_per_page
-        self.sleep_window = kwargs.get("sleep_window", 10)
-
+        self._subject = subject
+        self._last_page = start_page
+        self._num_pages = num_pages
+        self._num_items_per_page = num_items_per_page
+        self._curr_page = start_page
+    
     @abstractmethod
-    async def fetch_data(self) -> List[CommonMediaDocument]:
+    async def fetch_data(self, page_num: int) -> List[CommonMediaDocument]:
         pass
 
     async def run(self) -> None:
-        while True:
+        assert os.getenv("UNSPLASH_API_KEY") or os.getenv("PEXELS_API_KEY"), "API keys are not set"
+        while self._curr_page <= self._last_page + self._num_pages:
             try:
-                data: List[CommonMediaDocument] = await self.fetch_data()
+                data: List[CommonMediaDocument] = await self.fetch_data(page_num=self._curr_page)
                 for item in data:
                     await self.queue.put(item)
-                await asyncio.sleep(self.sleep_window)
+                self._curr_page += 1
+                await asyncio.sleep(0.1)
             except Exception as e:
                 logger.error(f"Error in {self.__class__.__name__}: {e}")
 
 
 class UnsplashProcessor(BaseProcessor):
     PROCESSOR_NAME = "Unsplash"
-    UNSPLASH_API_URL = "https://api.unsplash.com/search/photos?query={subject}&page={num_pages}&per_page={num_items_per_page}"
+    UNSPLASH_API_URL = "https://api.unsplash.com/search/photos?query={subject}&page={page}&per_page={num_items_per_page}"
 
-    async def fetch_data(self) -> List[CommonMediaDocument]:
+    async def fetch_data(self, page_num: int) -> List[CommonMediaDocument]:
         async with ClientSession() as session:
             url = self.UNSPLASH_API_URL.format(
-                subject=self.subject.replace(" ", "-"),
-                im_width=self.image_params["width"],
-                im_height=self.image_params["height"],
-                num_pages=self.num_pages,
-                num_items_per_page=self.num_items_per_page,
+                subject=self._subject.replace(" ", "-"),
+                page=page_num,
+                num_items_per_page=self._num_items_per_page,
             )
             headers = {"Authorization": f"Client-ID {os.getenv('UNSPLASH_API_KEY')}"}
             async with session.get(url, headers=headers) as response:
                 response.raise_for_status()
-                result = (await response.json()).get("results", [])
+                result = await response.json()
 
                 documents = []
                 if result:
+                    items = result.get("results", [])
                     logger.info(
-                        f"Received {len(result)} items from {self.PROCESSOR_NAME}"
+                        f"Received {len(items)} items from page={self._curr_page} from {self.PROCESSOR_NAME}"
                     )
-                    for res in result:
-                        new_item = UnsplashItem.from_json(res)
-                        common_item = CommonMediaDocument.from_unsplash(new_item)
+                    for item in items:
+                        new_item = UnsplashItem.from_json(item)
+                        common_item = CommonMediaDocument.from_unsplash(item=new_item, subject=self._subject, page_number=self._curr_page)
                         documents.append(common_item)
                 logger.info(f"Processed into {len(documents)}")
                 return documents
@@ -75,14 +76,14 @@ class UnsplashProcessor(BaseProcessor):
 
 class PexelsProcessor(BaseProcessor):
     PROCESSOR_NAME = "Pexels"
-    PEXELS_API_URL = "https://api.pexels.com/v1/search?query={subject}&page={num_pages}&per_page={num_items_per_page}"
+    PEXELS_API_URL = "https://api.pexels.com/v1/search?query={subject}&page={page}&per_page={num_items_per_page}"
 
-    async def fetch_data(self) -> CommonMediaDocument:
+    async def fetch_data(self, page_num: int) -> CommonMediaDocument:
         async with ClientSession() as session:
             url = self.PEXELS_API_URL.format(
-                subject=self.subject.replace(" ", "%20"),
-                num_pages=self.num_pages,
-                num_items_per_page=self.num_items_per_page,
+                subject=self._subject.replace(" ", "%20"),
+                page=page_num,
+                num_items_per_page=self._num_items_per_page,
             )
             headers = {"Authorization": os.getenv("PEXELS_API_KEY")}
             async with session.get(
@@ -94,45 +95,12 @@ class PexelsProcessor(BaseProcessor):
 
                 documents = []
                 if result:
+                    items = result.get("photos", [])
                     logger.info(
-                        f"Received {len(result)} items from {self.PROCESSOR_NAME}"
+                        f"Received {len(items)} items from page={self._curr_page} from {self.PROCESSOR_NAME}"
                     )
-
-                    for res in result.get("photos", []):
-                        new_item = PexelsItem.from_json(res)
-                        common_item = CommonMediaDocument.from_pexels(new_item)
+                    for item in items:
+                        new_item = PexelsItem.from_json(item)
+                        common_item = CommonMediaDocument.from_pexels(item=new_item, subject=self._subject, page_number=self._curr_page)
                         documents.append(common_item)
-                logger.info(f"Processed into {len(documents)}")
                 return documents
-
-
-class ConsumerWorker:
-    def __init__(self, queue: asyncio.Queue):
-        self.consumer_id = uuid.uuid4()
-        self.queue = queue
-        logger.info(f"Consumer [{self.consumer_id}] created")
-
-    @retry(
-        wait=wait_exponential(min=1, max=10),
-        stop=stop_after_attempt(2),
-    )
-    async def process_item(self, item: CommonMediaDocument) -> None:
-        try:
-            CommonMediaDocument.model_validate(item)
-        except Exception as e:
-            logger.error(f"Validation error: {e}")
-            return
-
-    async def run(self) -> None:
-        while True:
-            item = await self.queue.get()
-            logger.info(
-                f"Consumer [{self.consumer_id}] received item - {item.image_url}"
-            )
-            try:
-                await self.process_item(item)
-                self.queue.task_done()
-                await asyncio.sleep(0.1)
-            except Exception as e:
-                logger.error(f"Error processing item: {e}")
-                logger.error(f"Error processing item: {e}")
