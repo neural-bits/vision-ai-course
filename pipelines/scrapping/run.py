@@ -1,12 +1,17 @@
 import asyncio
 import os
+from pathlib import Path
 
+import dotenv
 from loguru import logger
 from processors import ConsumerWorker, PexelsProcessor, UnsplashProcessor
 
-IMAGES_SUBJECT = os.getenv("API_IMAGE_SUBJECT")
-NUM_PAGES = os.getenv("API_IMAGE_NUM_PAGES")
-NUM_ITEMS_PER_PAGE = os.getenv("API_IMAGE_NUM_ITEMS_PER_PAGE")
+ROOT_PATH = Path(__file__).parent
+dotenv.load_dotenv(str(ROOT_PATH / ".env"))
+
+IMAGES_SUBJECT: str = os.getenv("API_IMAGE_SUBJECT")
+NUM_PAGES: int = int(os.getenv("API_IMAGE_NUM_PAGES", 1))
+NUM_ITEMS_PER_PAGE: int = int(os.getenv("API_IMAGE_NUM_ITEMS_PER_PAGE", 1))
 
 
 async def main():
@@ -45,4 +50,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
+        logger.info("Pipeline interrupted. Exiting...")
+        logger.info("Pipeline interrupted. Exiting...")
         logger.info("Pipeline interrupted. Exiting...")

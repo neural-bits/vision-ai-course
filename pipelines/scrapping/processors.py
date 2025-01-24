@@ -3,18 +3,13 @@ import os
 import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, Dict, List
 
 import dotenv
 from aiohttp import ClientSession
 from loguru import logger
 from models import CommonMediaDocument, PexelsItem, UnsplashItem
 from tenacity import retry, stop_after_attempt, wait_exponential
-
-ROOT = Path(__file__).parent.parent
-
-# Environment variables
-dotenv.load_dotenv(str(ROOT / ".env"))
 
 
 class BaseProcessor(ABC):
@@ -30,11 +25,7 @@ class BaseProcessor(ABC):
         self.subject = subject
         self.num_pages = num_pages
         self.num_items_per_page = num_items_per_page
-        self.image_params = {
-            "width": kwargs.get("width", 1920),
-            "height": kwargs.get("height", 1080),
-        }
-        self.sleep_window = 5
+        self.sleep_window = kwargs.get("sleep_window", 10)
 
     @abstractmethod
     async def fetch_data(self) -> List[CommonMediaDocument]:
@@ -53,12 +44,12 @@ class BaseProcessor(ABC):
 
 class UnsplashProcessor(BaseProcessor):
     PROCESSOR_NAME = "Unsplash"
-    UNSPLASH_API_URL = "https://api.unsplash.com/search/photos?query={subject}&width={im_width}&height={im_height}&page={num_pages}&per_page={num_items_per_page}"
+    UNSPLASH_API_URL = "https://api.unsplash.com/search/photos?query={subject}&page={num_pages}&per_page={num_items_per_page}"
 
     async def fetch_data(self) -> List[CommonMediaDocument]:
         async with ClientSession() as session:
             url = self.UNSPLASH_API_URL.format(
-                subject=self.subject,
+                subject=self.subject.replace(" ", "-"),
                 im_width=self.image_params["width"],
                 im_height=self.image_params["height"],
                 num_pages=self.num_pages,
@@ -84,16 +75,14 @@ class UnsplashProcessor(BaseProcessor):
 
 class PexelsProcessor(BaseProcessor):
     PROCESSOR_NAME = "Pexels"
-    PEXELS_API_URL = "https://api.pexels.com/v1/search?query={subject}&width={im_width}&height={im_height}&page={num_pages}&per_page={num_items_per_page}"
+    PEXELS_API_URL = "https://api.pexels.com/v1/search?query={subject}&page={num_pages}&per_page={num_items_per_page}"
 
     async def fetch_data(self) -> CommonMediaDocument:
         async with ClientSession() as session:
             url = self.PEXELS_API_URL.format(
-                subject=self.subject,
+                subject=self.subject.replace(" ", "%20"),
                 num_pages=self.num_pages,
                 num_items_per_page=self.num_items_per_page,
-                im_width=self.image_params["width"],
-                im_height=self.image_params["height"],
             )
             headers = {"Authorization": os.getenv("PEXELS_API_KEY")}
             async with session.get(
@@ -102,7 +91,6 @@ class PexelsProcessor(BaseProcessor):
             ) as response:
                 response.raise_for_status()
                 result = await response.json()
-                # TODO: implement error handling + group images by page in pydantic model
 
                 documents = []
                 if result:
@@ -110,7 +98,7 @@ class PexelsProcessor(BaseProcessor):
                         f"Received {len(result)} items from {self.PROCESSOR_NAME}"
                     )
 
-                    for res in result:
+                    for res in result.get("photos", []):
                         new_item = PexelsItem.from_json(res)
                         common_item = CommonMediaDocument.from_pexels(new_item)
                         documents.append(common_item)
@@ -146,4 +134,5 @@ class ConsumerWorker:
                 self.queue.task_done()
                 await asyncio.sleep(0.1)
             except Exception as e:
+                logger.error(f"Error processing item: {e}")
                 logger.error(f"Error processing item: {e}")

@@ -1,9 +1,10 @@
-from typing import Dict, List, Optional, Any, Union
-
 import datetime
+from pprint import pprint
+from typing import Any, Dict, List, Optional, Union
+
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
-from loguru import logger
+
 
 # Configuration
 class Config(BaseSettings):
@@ -22,7 +23,7 @@ class Author(BaseModel):
 class PexelsItem(BaseModel):
     alt: str = Field(default=None)
     avg_color: str = Field(default=None)
-    height: int = Field(ge=1080)
+    height: int = Field(ge=720)
     id: int = Field(default=None)
     liked: bool = Field(default=False)
     photographer: str = Field(default=None)
@@ -30,7 +31,7 @@ class PexelsItem(BaseModel):
     photographer_url: str = Field(default=None)
     src: Dict[str, str] = Field(default=None)
     url: str = Field(required=True)
-    width: int = Field(ge=1920)
+    width: int = Field(ge=1280)
     
     @classmethod
     def from_json(cls, json_data: Dict[str, Any]) -> "PexelsItem":
@@ -51,7 +52,7 @@ class UnsplashItem(BaseModel):
     created_at: str = Field(default_factory=datetime.datetime.now)
     current_user_collections: List[str] = Field(default=[])
     description: Union[str, None] = Field(default=None)
-    height: int = Field(ge=1080)
+    height: int = Field(ge=720)
     id: str = Field(default="")
     liked_by_user: bool = Field(default=False)
     likes: int = Field(default=0)
@@ -63,14 +64,14 @@ class UnsplashItem(BaseModel):
     updated_at: str = Field(default_factory=datetime.datetime.now)
     urls: Dict[str, str] = Field(default=None)
     user: Dict[str, Any] = Field(default=None)
-    width: int = Field(ge=1920)
+    width: int = Field(ge=1280)
     
     @classmethod
     def from_json(cls, json_data: Dict[str, Any]) -> "UnsplashItem":
         try:
             return cls(**json_data)
         except ValueError as e:
-            print(f"Error creating UnsplashItem from JSON: {e}")
+            raise ValueError(f"Error creating UnsplashItem from JSON: {e}")
             return None 
 
 class CommonMediaDocument(BaseModel):
@@ -108,7 +109,9 @@ class CommonMediaDocument(BaseModel):
                 username=item.user["username"]
             ),
         )
-
+    def __repr__(self):
+        return pprint(self.model_dump())
+    
     def to_json(self) -> Dict:
         return {
             "id": self.id,
