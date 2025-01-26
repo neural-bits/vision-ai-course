@@ -6,7 +6,8 @@ from typing import List
 
 from aiohttp import ClientSession
 from loguru import logger
-from models import CommonMediaDocument, PexelsItem, UnsplashItem
+
+from pipelines.common.models import CommonMediaDocument, PexelsItem, UnsplashItem
 
 
 class BaseProcessor(ABC):

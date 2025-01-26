@@ -1,30 +1,20 @@
-import os
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import BinaryIO
 
 import boto3
-import dotenv
 from botocore.exceptions import ClientError
+from common import settings
 from loguru import logger
 
-ROOT_PATH = Path(__file__).parent.parent.parent
-dotenv.load_dotenv(str(ROOT_PATH / ".env"))
-
 logger = logger.bind(name="S3Connector")
-# S3 Configuration
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_S3_DATALAKE_BUCKET = os.getenv("AWS_S3_DATALAKE_BUCKET")
-AWS_S3_DATAWAREHOUSE_BUCKET = os.getenv("AWS_S3_DATAWAREHOUSE_BUCKET")
 
 
 class S3BucketConnector(ABC):
     """Abstract base class for S3 bucket operations"""
 
-    def __init__(self, bucket_name: str):
+    def __init__(self, bucket_name: str, api_key: str = None, secret_key: str = None):
         self.bucket_name = bucket_name
-        self._s3 = boto3.resource("s3")
+        self._s3 = boto3.resource("s3", aws_access_key_id=api_key, aws_secret_access_key=secret_key)
         self._bucket = self._s3.Bucket(self.bucket_name)
 
     @abstractmethod
@@ -41,10 +31,10 @@ class S3BucketConnector(ABC):
 class DataLakeConnector(S3BucketConnector):
     """Handles operations with the raw data lake bucket"""
 
-    def __init__(self):
-        super().__init__(AWS_S3_DATALAKE_BUCKET)
+    def __init__(self, bucket_name: str, api_key: str = None, secret_key: str = None):
+        super().__init__(bucket_name=bucket_name, api_key=api_key, secret_key=secret_key)
 
-    def upload_fileobj(self, file_obj: BinaryIO, s3_key: str) -> None:
+    def upload_fileobj(self, file_obj: bytes, s3_key: str) -> None:
         try:
             self._bucket.upload_fileobj(
                 Fileobj=file_obj, Key=s3_key, ExtraArgs={"ContentType": "application/octet-stream"}
@@ -62,10 +52,10 @@ class DataLakeConnector(S3BucketConnector):
 class DataWarehouseConnector(S3BucketConnector):
     """Handles operations with the processed data warehouse bucket"""
 
-    def __init__(self):
-        super().__init__(AWS_S3_DATAWAREHOUSE_BUCKET)
+    def __init__(self, bucket_name: str, api_key: str = None, secret_key: str = None):
+        super().__init__(bucket_name=bucket_name, api_key=api_key, secret_key=secret_key)
 
-    def upload_fileobj(self, file_obj: BinaryIO, s3_key: str) -> None:
+    def upload_fileobj(self, file_obj: bytes, s3_key: str) -> None:
         try:
             self._bucket.upload_fileobj(
                 Fileobj=file_obj, Key=s3_key, ExtraArgs={"ContentType": "application/octet-stream"}
@@ -83,9 +73,17 @@ class DataWarehouseConnector(S3BucketConnector):
 class S3DataManager:
     """Orchestrates operations between data lake and data warehouse"""
 
-    def __init__(self):
-        self.datalake = DataLakeConnector()
-        self.warehouse = DataWarehouseConnector()
+    def __init__(self, settings: settings.S3Settings):
+        self.datalake = DataLakeConnector(
+            bucket_name=settings.aws_s3_datalake_bucket,
+            api_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key,
+        )
+        self.warehouse = DataWarehouseConnector(
+            bucket_name=settings.aws_s3_datawarehouse_bucket,
+            api_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key,
+        )
         self.s3_client = boto3.client("s3")
 
     def move_to_warehouse(self, source_key: str, dest_key: str) -> None:

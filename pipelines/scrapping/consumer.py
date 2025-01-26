@@ -3,14 +3,14 @@ import uuid
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from models import RawMediaMongoDocument
 
+from pipelines.common.models import RawMediaMongoDocument
 from pipelines.tools.mongo.connector import MongoConnector
 
 logger = logger.bind(name="APIConsumer")
 
 if TYPE_CHECKING:
-    from models import CommonMediaDocument
+    from pipelines.common.models import CommonMediaDocument
 
 
 class ConsumerWorker:

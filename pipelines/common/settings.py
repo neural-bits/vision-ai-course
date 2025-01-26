@@ -1,4 +1,8 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
+
+from pydantic_settings import BaseSettings
+
+ROOT_PATH = Path(__file__).parent.parent
 
 
 class APIScrappingSettings(BaseSettings):
@@ -27,12 +31,12 @@ class S3Settings(BaseSettings):
 
 
 def get_mongo_settings():
-    return MongoSettings(_env_file=".secrets/env-db.env")
+    return MongoSettings(_env_file=ROOT_PATH / ".secrets/.env-db.env")
 
 
 def get_s3_settings():
-    return S3Settings(_env_file=".secret/env-storage.env")
+    return S3Settings(_env_file=ROOT_PATH / ".secrets/.env-storage.env")
 
 
 def get_api_scrapping_settings():
-    return APIScrappingSettings(_env_file=".secrets/env-scrapping.env")
+    return APIScrappingSettings(_env_file=ROOT_PATH / ".secrets/.env-scrapping.env")

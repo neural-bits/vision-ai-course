@@ -48,19 +48,35 @@ def validate_image(url: str) -> bool:
         return False
 
 
-def transform_to_png(image: Image) -> bytes:
+def transform_to_png(image: Image.Image) -> BytesIO:
+    """Optimized PNG conversion with buffer reuse and minimal conversions"""
     try:
-        png_buffer = BytesIO()
+        # Reuse buffer for memory efficiency
+        buffer = BytesIO()
 
-        if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
-            img = image.convert("RGBA")
-            format_options = {"optimize": True}
+        if image.mode in {"RGBA", "LA", "RGB"}:
+            output_mode = image.mode
+            params = {"optimize": True, "compress_level": 3}
+        elif image.mode == "P" and "transparency" in image.info:
+            output_mode = "RGBA"
+            params = {"optimize": True}
         else:
-            img = image.convert("RGB")
-            format_options = {"quality": 95, "optimize": True}
+            output_mode = "RGB"
+            params = {"optimize": True}
 
-        img.save(png_buffer, format="PNG", **format_options)
-        png_buffer.seek(0)
-        return png_buffer.getvalue()
+        # Skip conversion if already in target mode
+        if image.mode != output_mode:
+            image = image.convert(output_mode)
+
+        image.save(
+            buffer,
+            format="PNG",
+            **params,
+            dpi=image.info.get("dpi", (72, 72)),  # Preserve original DPI if available
+        )
+
+        buffer.seek(0)
+        return buffer
+
     except Exception as e:
-        raise ValueError(f"Conversion failed: {str(e)}") from e
+        raise ValueError(f"PNG conversion failed: {e}") from e

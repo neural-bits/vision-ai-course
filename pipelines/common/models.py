@@ -2,17 +2,6 @@ import datetime
 from typing import Annotated, Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, HttpUrl
-from pydantic_settings import BaseSettings
-
-
-# Configuration
-class Config(BaseSettings):
-    unsplash_api_key: str
-    pexels_api_key: str
-    mongo_uri: str
-
-    class Config:
-        env_file = ".env"
 
 
 class Author(BaseModel):
