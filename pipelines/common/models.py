@@ -14,6 +14,7 @@ class Config(BaseSettings):
     class Config:
         env_file = ".env"
 
+
 class Author(BaseModel):
     id: str
     username: str
@@ -21,7 +22,7 @@ class Author(BaseModel):
 
 class PexelsItem(BaseModel):
     alt: str = Field(default=None)
-    avg_color: str = Field(default=None) # hex color red color
+    avg_color: str = Field(default=None)  # hex color red color
     height: int = Field(ge=720)
     id: int = Field(default=None)
     liked: bool = Field(default=False)
@@ -31,7 +32,7 @@ class PexelsItem(BaseModel):
     src: Dict[str, str] = Field(default=None)
     url: str = Field(required=True)
     width: int = Field(ge=1280)
-    
+
     @classmethod
     def from_json(cls, json_data: Dict[str, Any]) -> "PexelsItem":
         try:
@@ -39,7 +40,7 @@ class PexelsItem(BaseModel):
             return PexelsItem(**json_data)
         except ValueError as e:
             print(f"Error creating PexelsItem from JSON: {e}")
-            return None 
+            return None
 
 
 class UnsplashItem(BaseModel):
@@ -48,7 +49,7 @@ class UnsplashItem(BaseModel):
     asset_type: str = Field(default="photo")
     blur_hash: str = Field(default=None)
     breadcrumbs: List[str] = Field(default=[])
-    color: str  = Field(default=None)
+    color: str = Field(default=None)
     created_at: str = Field(default=None)
     current_user_collections: List[str] = Field(default=[])
     description: Union[str, None] = Field(default=None)
@@ -65,13 +66,14 @@ class UnsplashItem(BaseModel):
     urls: Dict[str, str] = Field(default=None)
     user: Dict[str, Any] = Field(default=None)
     width: int = Field(ge=1280)
-    
+
     @classmethod
     def from_json(cls, json_data: Dict[str, Any]) -> "UnsplashItem":
         try:
             return cls(**json_data)
         except ValueError as e:
             raise ValueError(f"Error creating UnsplashItem from JSON: {e}")
+
 
 class CommonMediaDocument(BaseModel):
     media_id: str
@@ -83,9 +85,9 @@ class CommonMediaDocument(BaseModel):
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.now)
     from_page_num: int = Field(default=1)
     subject: str = Field(required=True, description="The search subject the image belongs to.")
- 
+
     @classmethod
-    def from_pexels(cls, item: PexelsItem, subject: str,  page_number: int) -> "CommonMediaDocument":
+    def from_pexels(cls, item: PexelsItem, subject: str, page_number: int) -> "CommonMediaDocument":
         return cls(
             media_id=str(item.id),
             weburl=item.url,
@@ -99,7 +101,7 @@ class CommonMediaDocument(BaseModel):
             from_page_num=page_number,
             subject=subject,
         )
-    
+
     @classmethod
     def from_unsplash(cls, item: UnsplashItem, subject: str, page_number: int) -> "CommonMediaDocument":
         return cls(
@@ -108,14 +110,11 @@ class CommonMediaDocument(BaseModel):
             imgsize=[item.width, item.height],
             image_url=item.urls["full"],
             description=item.alt_description,
-            author=Author(
-                id=str(item.user["id"]),
-                username=item.user["username"]
-            ),
+            author=Author(id=str(item.user["id"]), username=item.user["username"]),
             from_page_num=page_number,
             subject=subject,
-        )        
-    
+        )
+
     def to_json(self) -> Dict:
         return {
             "id": self.id,
@@ -129,9 +128,11 @@ class CommonMediaDocument(BaseModel):
             },
         }
 
+
 # MONGO stores entries as BSON, which requires a specific type for the primary key.
 # This is a `str` that will be converted to a `bson.ObjectId` when sent to MongoDB.
 PyObjectId = Annotated[str, BeforeValidator(str)]
+
 
 class RawMediaMongoDocument(BaseModel):
     """
@@ -147,10 +148,12 @@ class RawMediaMongoDocument(BaseModel):
     image_url: str = Field(..., description="Full URL to image.")
     description: Optional[str] = Field(None, description="Image Description/")
     author: Author = Field(..., description="Author name and username")
-    created_at: datetime.datetime = Field(default_factory=datetime.datetime.now, description="TS when document was created")
+    created_at: datetime.datetime = Field(
+        default_factory=datetime.datetime.now, description="TS when document was created"
+    )
     from_page_num: Optional[int] = Field(None, description="The page number where the image was found.")
     subject: str = Field(..., description="The search subject the image belongs to.")
-    
+
     model_config = ConfigDict(
         populate_by_name=True,
         arbitrary_types_allowed=True,
@@ -170,7 +173,7 @@ class RawMediaMongoDocument(BaseModel):
             }
         },
     )
-    
+
     @classmethod
     def from_commondoc(cls, doc: CommonMediaDocument) -> "RawMediaMongoDocument":
         return cls(
@@ -183,3 +186,11 @@ class RawMediaMongoDocument(BaseModel):
             from_page_num=doc.from_page_num,
             subject=doc.subject,
         )
+
+    @classmethod
+    def from_json(cls, **json_data) -> "RawMediaMongoDocument":
+        try:
+            return cls(**json_data)
+        except ValueError as e:
+            print(f"Error creating RawMediaMongoDocument from JSON: {e}")
+            return None

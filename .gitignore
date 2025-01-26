@@ -166,3 +166,6 @@ cython_debug/
 
 # Skip TensorRT plans
 **/*/*.plan
+
+# Skip secrets and env files
+**/.secrets/*.env
