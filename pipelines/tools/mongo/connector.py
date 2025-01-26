@@ -1,16 +1,16 @@
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import dotenv
 import pymongo
 from loguru import logger
 
+from pipelines.common.models import RawMediaMongoDocument
+
 ROOT_PATH = Path(__file__).parent.parent
 dotenv.load_dotenv(str(ROOT_PATH / ".env"))
 
-if TYPE_CHECKING:
-    from scrapping.models import RawMediaMongoDocument
 
 # MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI")
@@ -57,6 +57,20 @@ class MongoConnector:
         collection = self._db[CLEAN_DATA_COLLECTION]
         collection.insert_one(mongo_media_item.model_dump(by_alias=True, exclude=["id"]))
         logger.info(f"Inserted data: {mongo_media_item}")
+
+    def batch_read_all_on_date(self, batch_date: str) -> list["RawMediaMongoDocument"]:
+        collection = self._db[RAW_DATA_COLLECTION]
+        raw_data = collection.find({"batch_date": batch_date})
+        return [raw for raw in raw_data]
+
+    def batch_raw_records_by_subject_and_date(self, batch_date: str, subject: str) -> list["RawMediaMongoDocument"]:
+        collection = self._db[RAW_DATA_COLLECTION]
+        start_date = datetime.strptime(batch_date, "%Y-%m-%d")
+        end_date = start_date + timedelta(days=1)
+
+        query = {"created_at": {"$gte": start_date, "$lt": end_date}, "subject": subject}
+        raw_data = collection.find(query)
+        return [RawMediaMongoDocument.from_json(**raw) for raw in raw_data]
 
     def close(self):
         self.client.close()
