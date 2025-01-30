@@ -6,8 +6,8 @@ from typing import List
 
 from aiohttp import ClientSession
 from loguru import logger
-
-from pipelines.common.models import CommonMediaDocument, PexelsItem, UnsplashItem
+from tools.common.models import CommonMediaDocument, PexelsItem, UnsplashItem
+from tools.connectors.mongo import MongoConnector
 
 
 class BaseProcessor(ABC):
@@ -17,10 +17,9 @@ class BaseProcessor(ABC):
         start_page: int,
         num_pages: int,
         num_items_per_page: int,
-        queue: asyncio.Queue,
     ):
         assert os.getenv("API_IMAGE_SUBJECT"), "API_IMAGE_SUBJECT is not set"
-        self.queue = queue
+        self._db_connector = MongoConnector()
         self._subject = subject
         self._last_page = start_page
         self._num_pages = num_pages
@@ -28,7 +27,7 @@ class BaseProcessor(ABC):
         self._curr_page = start_page
 
     @abstractmethod
-    async def fetch_data(self, page_num: int) -> List[CommonMediaDocument]:
+    def fetch_data(self, page_num: int) -> List[CommonMediaDocument]:
         pass
 
     async def run(self) -> None:
@@ -37,7 +36,7 @@ class BaseProcessor(ABC):
             try:
                 data: List[CommonMediaDocument] = await self.fetch_data(page_num=self._curr_page)
                 for item in data:
-                    await self.queue.put(item)
+                    self._db_connector.insert_raw_metadata(item)
                 self._curr_page += 1
                 await asyncio.sleep(0.1)
             except Exception as e:

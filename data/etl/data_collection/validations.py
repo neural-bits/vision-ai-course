@@ -12,7 +12,7 @@ logger = logger.bind(name="StorageImageChecks")
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
-def is_valid_url(url: str) -> bool:
+def _is_valid_url(url: str) -> bool:
     try:
         result = urlparse(url)
         return all([result.scheme in ["http", "https"], result.netloc])
@@ -20,13 +20,13 @@ def is_valid_url(url: str) -> bool:
         raise ValueError(f"Invalid URL: {e}")
 
 
-def has_valid_image_header(response: Response) -> bool:
+def _has_valid_image_header(response: Response) -> bool:
     if not response.headers.get("Content-Type", "").startswith("image/"):
         raise ValueError("URL doesn't point to an image")
     return True
 
 
-def is_valid_image_size(response: Response, maxsize: int = 10) -> bool:
+def _is_valid_image_size(response: Response, maxsize: int = 10) -> bool:
     content_length = int(response.headers.get("Content-Length", 0))
     if content_length > maxsize * 1024 * 1024:
         raise ValueError(f"Image exceeds {maxsize}MB limit")
@@ -37,9 +37,9 @@ def validate_image(url: str) -> bool:
     checks = {"valid_url": False, "content_type": False, "file_size": False}
     try:
         response = requests.head(url)
-        checks["valid_url"] = is_valid_url(url)
-        checks["content_type"] = has_valid_image_header(response)
-        checks["file_size"] = is_valid_image_size(response)
+        checks["valid_url"] = _is_valid_url(url)
+        checks["content_type"] = _has_valid_image_header(response)
+        checks["file_size"] = _is_valid_image_size(response)
 
         return all(checks.values())
 
@@ -48,7 +48,7 @@ def validate_image(url: str) -> bool:
         return False
 
 
-def transform_to_png(image: Image.Image) -> BytesIO:
+def transform_to_pngbytes(image: Image.Image) -> BytesIO:
     """Optimized PNG conversion with buffer reuse and minimal conversions"""
     try:
         # Reuse buffer for memory efficiency
